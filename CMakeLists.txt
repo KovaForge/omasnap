@@ -214,6 +214,7 @@ qt_add_executable(omasnap-smoke
   tests/pin-lifecycle-smoke.hpp
   tests/pin-interaction-smoke.cpp
   tests/pin-interaction-smoke.hpp
+  tests/upload-fake-server.hpp
   tests/pin-layout-smoke.cpp
   tests/pin-layout-smoke.hpp
   src/stitch.cpp

@@ -1,5 +1,6 @@
 #include <QThreadPool>
 #include <QFutureWatcher>
+#include <QPromise>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QLockFile>
 #include <QSaveFile>
@@ -16,6 +17,7 @@
 #include "overlay-chrome.hpp"
 #include "overlay-dismissal.hpp"
 #include "startup-timing.hpp"
+#include "upload.hpp"
 
 #include <QApplication>
 #include <QBuffer>
@@ -62,6 +64,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <functional>
@@ -589,6 +592,7 @@ struct PinPreview {
 
 class PinWindow final : public QWidget {
   friend bool runPinRevealSmoke(QString &error);
+  friend bool runPinUploadSmoke(QString &error);
 public:
   explicit PinWindow(QImage image, QString path, const QSize &frame,
                       PinLifetime lifetime = PinLifetime::Persistent)
@@ -605,6 +609,11 @@ public:
     setAttribute(Qt::WA_AlwaysShowToolTips, true);
     QToolTip::setFont(chromeFont(11));
     setMouseTracking(true);
+    toastTimer_.setSingleShot(true);
+    connect(&toastTimer_, &QTimer::timeout, this, [this] {
+      toast_.clear();
+      update();
+    });
     connect(&expiry_, &PinExpiry::opacityChanged, this, [this](qreal opacity) {
       opacity_ = opacity;
       update();
@@ -830,7 +839,13 @@ public:
     }));
   }
 
-  ~PinWindow() override { closeButtonWatch(); }
+  ~PinWindow() override {
+    closeButtonWatch();
+    // Stop an upload still running for this preview; its worker keeps only
+    // copies and this flag.
+    if (uploadCancel_)
+      uploadCancel_->store(true);
+  }
 
   [[nodiscard]] bool hasPinLock() const { return snapshotFile_.isLocked(); }
 
@@ -894,12 +909,10 @@ protected:
     drawControlButton(painter, pinButtonRect(), QStringLiteral("pin"));
     drawControlButton(painter, pathButtonRect(), QStringLiteral("path"));
     drawControlButton(painter, revealButtonRect(), QStringLiteral("folder"));
+    drawControlButton(painter, uploadButtonRect(), QStringLiteral("upload"));
     drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"),
                        QStringLiteral("Copy"));
     drawControlButton(painter, closeButtonRect(), QStringLiteral("close"));
-    if (hostUploadAvailable())
-      drawControlButton(painter, uploadButtonRect(), QStringLiteral("upload"),
-                        QStringLiteral("Upload"));
   }
 
   void drawControlButton(QPainter &painter, const QRectF &rect,
@@ -964,16 +977,16 @@ protected:
         copyPath();
         return;
       }
+      if (uploadButtonRect().contains(position)) {
+        upload();
+        return;
+      }
       if (revealButtonRect().contains(position)) {
         revealFile();
         return;
       }
       if (editButtonRect().contains(position)) {
         reopenInEditor();
-        return;
-      }
-      if (hostUploadAvailable() && uploadButtonRect().contains(position)) {
-        uploadToHost();
         return;
       }
       if (QWindow *handle = windowHandle())
@@ -1287,6 +1300,64 @@ protected:
     watcher->setFuture(QtConcurrent::run(std::move(worker)));
   }
 
+  // Sends the capture to the hosts in [upload] of omasnap.conf on a worker,
+  // with progress in the toast, and copies the link. Failures also go to a
+  // notification, where the whole reason fits.
+  void uploadImage() {
+    if (actionPending_)
+      return;
+    actionPending_ = true;
+    updateExpiryPause();
+    auto cancel = std::make_shared<std::atomic_bool>(false);
+    uploadCancel_ = cancel;
+    setProgressToast(QStringLiteral("Uploading…"));
+    auto *watcher = new QFutureWatcher<UploadResult>(this);
+    connect(watcher, &QFutureWatcher<UploadResult>::progressValueChanged, this,
+            [this](int percent) {
+              setProgressToast(QStringLiteral("Uploading %1%").arg(percent));
+            });
+    connect(watcher, &QFutureWatcher<UploadResult>::finished, this,
+            [this, watcher] {
+      const UploadResult result = watcher->result();
+      watcher->deleteLater();
+      uploadCancel_.reset();
+      actionPending_ = false;
+      updateExpiryPause();
+      if (result.error.isEmpty()) {
+        showToast(QStringLiteral("Link copied"));
+        return;
+      }
+      showToast(QStringLiteral("Upload failed"));
+      sendCaptureNotification(
+          QStringLiteral("Upload failed: %1").arg(result.error), {});
+    });
+    // The saved screenshot when there is one, for its name; otherwise the
+    // preview's own PNG.
+    const QString path = !sharedPath_.isEmpty() && QFileInfo::exists(sharedPath_)
+                             ? sharedPath_ : path_;
+    watcher->setFuture(QtConcurrent::run(
+        [path, cancel](QPromise<UploadResult> &promise) {
+          promise.setProgressRange(0, 100);
+          UploadResult result = uploadFile(
+              path, UploadPaths::defaults(),
+              [&promise](int percent) { promise.setProgressValue(percent); },
+              cancel.get());
+          QString error;
+          if (result.error.isEmpty() && !copyTextToClipboard(result.url, error))
+            result.error =
+                QStringLiteral("uploaded to %1, but the link wasn't copied: %2")
+                    .arg(result.url, error);
+          promise.addResult(result);
+        }));
+  }
+
+  // A toast that stays until replaced, for progress.
+  void setProgressToast(QString message) {
+    toastTimer_.stop();
+    toast_ = std::move(message);
+    update();
+  }
+
   void copyImage() {
     runAction([path = path_, image = image_] {
       QString error;
@@ -1522,11 +1593,8 @@ protected:
           revealFile();
           return;
         case Qt::Key_U:
-          if (!uploadCommand_.isEmpty()) {
-            uploadToHost();
-            return;
-          }
-          break;
+          upload();
+          return;
         default:
           break;
         }
@@ -1685,10 +1753,8 @@ private:
   void showToast(QString message) {
     toast_ = std::move(message);
     update();
-    QTimer::singleShot(kToastMs, this, [this] {
-      toast_.clear();
-      update();
-    });
+    // One timer, restarted, so an earlier toast's timeout can't clear this one.
+    toastTimer_.start(kToastMs);
   }
 
   // Painting, hover feedback, and clicks all use the same control geometry.
@@ -1708,8 +1774,13 @@ private:
 
   [[nodiscard]] QRectF uploadButtonRect() const { return controlRect(7); }
 
-  [[nodiscard]] bool hostUploadAvailable() const {
-    return !uploadCommand_.isEmpty() && !uploadButtonRect().isEmpty();
+  // One Upload control: a pin launched by a host (OMASNAP_HOST_UPLOAD_COMMAND,
+  // e.g. XerahS) uploads through the host; otherwise through omasnap.conf.
+  void upload() {
+    if (!uploadCommand_.isEmpty())
+      uploadToHost();
+    else
+      uploadImage();
   }
 
   [[nodiscard]] QRectF controlRect(int index) const {
@@ -1717,16 +1788,16 @@ private:
   }
 
   [[nodiscard]] int controlRectAt(const QPointF &position) const {
-    for (int index = 0; index < 7; ++index) {
+    for (int index = 0; index < 8; ++index) {
       if (controlRect(index).contains(position))
         return index;
     }
-    if (hostUploadAvailable() && uploadButtonRect().contains(position))
-      return 7;
     return -1;
   }
 
   QImage image_;
+  std::shared_ptr<std::atomic_bool> uploadCancel_;
+  QTimer toastTimer_;
   bool painted_ = false;
   PinExpiry expiry_;
   qreal opacity_ = 1.0;
