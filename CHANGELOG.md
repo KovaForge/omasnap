@@ -5,6 +5,19 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 
 ## Unreleased
 
+### Added
+
+- Uploads: `U` on a preview (or its upload button) and `omasnap --upload FILE`
+  send the capture to the hosts named in `[upload] hosts` of `omasnap.conf` and
+  copy the link. Hosts are the anonymous Litterbox, Catbox and Uguu, ShareX
+  `.sxcu` files, or `[host.NAME]` sections for S3 and S3-compatible storage,
+  Dropbox, Nextcloud, Immich, XBackBone, SFTP/FTP/FTPS and Imgur, tried in
+  order. Secrets can come from a command or the keyring, and
+  `omasnap --sign-in HOST` connects Dropbox and Nextcloud in the browser.
+  Nothing uploads until a host is named.
+  On a pin launched by a host (such as XerahS), the same control uploads through
+  the host's command instead.
+
 ## 1.22.0
 
 ### Added
@@ -19,12 +32,6 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   mapping a surface.
 - Pins launched by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` gain an Upload button
   (`U`) that runs the host's upload command and copies the returned link.
-
-### Fixed
-
-- `omasnap --version`, `--help` and unknown options no longer crash (SIGSEGV) while
-  exiting: the theme watcher now starts after the command line is parsed, so exit
-  no longer tears down its regexes under a running theme load.
 
 - `Tab` cycles region selection between free, square, 3:4, and 16:9 while
   capturing; `Shift+Tab` cycles back. The capture guide shows the active aspect.
@@ -77,6 +84,10 @@ earlier development is recorded in the [commit history](https://github.com/omaco
   line endpoints; restore them on release or cancellation.
 
 ### Fixed
+
+- `omasnap --version`, `--help` and unknown options no longer crash (SIGSEGV) while
+  exiting: the theme watcher now starts after the command line is parsed, so exit
+  no longer tears down its regexes under a running theme load.
 
 - Retain logical display dimensions inside exported PNGs, so captures from
   scaled monitors reopen at the correct size from Omaroll, files, or the

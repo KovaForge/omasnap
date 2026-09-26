@@ -40,6 +40,7 @@ private slots:
   void hostSectionsMapConfigKeysToSettings();
   void commandsAndTheSecretStoreFillSecrets();
   void configMistakesAreExplained();
+  void theReadmeExamplesResolve();
   void uploadFallsBackToTheNextHost();
   void uploadReportsEveryFailure();
   void uploadCanBeCancelled();
@@ -244,6 +245,82 @@ void UploadConfigTests::configMistakesAreExplained() {
           "[upload]\nhosts = box\n[host.box]\ntype = dropbox\napp_key = k\n"),
       QStringLiteral("[host.box] Sign in with Dropbox first. Run: omasnap "
                      "--sign-in box"));
+}
+
+// The keys and values the README shows, so the docs can't drift from the
+// field names.
+void UploadConfigTests::theReadmeExamplesResolve() {
+  writeConfig("[upload]\n"
+              "hosts = work, cloud, box, photos, server, xbb\n"
+              "[host.work]\n"
+              "type = s3\n"
+              "endpoint = acc.r2.cloudflarestorage.com\n"
+              "region = auto\n"
+              "bucket = shots\n"
+              "access_key_id = AKIA\n"
+              "secret_access_key = x\n"
+              "object_prefix = omasnap/%y/%mo\n"
+              "custom_domain = https://cdn.example.com\n"
+              "link_type = signed\n"
+              "path_style = true\n"
+              "public_acl = true\n"
+              "storage_class = standard_ia\n"
+              "unique_names = false\n"
+              "[host.cloud]\n"
+              "type = nextcloud\n"
+              "server_url = https://cloud.example.com\n"
+              "username = u\n"
+              "app_password = p\n"
+              "folder = omasnap/%y-%mo\n"
+              "expire_days = 7\n"
+              "direct_link = true\n"
+              "[host.box]\n"
+              "type = dropbox\n"
+              "app_key = abc\n"
+              "refresh_token = t\n"
+              "folder = /omasnap\n"
+              "direct_link = true\n"
+              "[host.photos]\n"
+              "type = immich\n"
+              "server_url = https://photos.example.com\n"
+              "api_key = k\n"
+              "share_link = false\n"
+              "expire_days = 7\n"
+              "public_url = https://share.example.com\n"
+              "[host.server]\n"
+              "type = ftp\n"
+              "protocol = ftps-implicit\n"
+              "host = example.com\n"
+              "username = me\n"
+              "private_key = ~/.ssh/id_ed25519\n"
+              "directory = /var/www/shots\n"
+              "public_url = https://example.com/shots\n"
+              "[host.xbb]\n"
+              "type = xbackbone\n"
+              "server_url = https://x.example\n"
+              "token = t\n"
+              "api = v1\n");
+  QString error;
+  const QList<UploadHost> hosts = loadUploadHosts(paths_, error);
+  QVERIFY2(hosts.size() == 6, qPrintable(error));
+  const auto setting = [&hosts](int host, const char *key) {
+    return hosts.at(host).settings.value(QString::fromLatin1(key));
+  };
+  QCOMPARE(setting(0, "objectPrefix").toString(),
+           QStringLiteral("omasnap/%y/%mo"));
+  QCOMPARE(setting(0, "linkType").toString(),
+           QStringLiteral("Signed link (7 days)"));
+  QCOMPARE(setting(0, "uniqueNames").toBool(), false);
+  QCOMPARE(setting(1, "expireDays").toInt(), 7);
+  QCOMPARE(setting(1, "directLink").toBool(), true);
+  QCOMPARE(setting(2, "folder").toString(), QStringLiteral("/omasnap"));
+  QCOMPARE(setting(3, "shareLink").toBool(), false);
+  QCOMPARE(setting(4, "protocol").toString(),
+           QStringLiteral("FTPS (implicit TLS)"));
+  QCOMPARE(setting(4, "privateKey").toString(),
+           QStringLiteral("~/.ssh/id_ed25519"));
+  QCOMPARE(setting(5, "api").toString(),
+           QStringLiteral("API v1 (/api/v1/upload)"));
 }
 
 void UploadConfigTests::uploadFallsBackToTheNextHost() {
