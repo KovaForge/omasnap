@@ -13,6 +13,7 @@
 #include "pin-file.hpp"
 #include "recent-snaps.hpp"
 #include "startup-timing.hpp"
+#include "upload.hpp"
 
 #include <LayerShellQt/Window>
 
@@ -295,6 +296,20 @@ int runOmasnap(int argc, char **argv) {
     captureMode = CaptureEditor::CaptureMode::Region;
 
   const QStringList positional = parser.positionalArguments();
+  // Uploads and sign-ins are one-shot commands: no overlay, no instance lock.
+  if (parser.isSet(QStringLiteral("upload")) || parser.isSet(QStringLiteral("sign-in"))) {
+    if (!filePath.isEmpty() || clipboardInput || requestedModes > 0 ||
+        !positional.isEmpty() || quickOutputMode != QuickOutputMode::None ||
+        (parser.isSet(QStringLiteral("upload")) && parser.isSet(QStringLiteral("sign-in")))) {
+      qCritical() << "--upload and --sign-in cannot be combined with other targets";
+      return 2;
+    }
+    if (parser.isSet(QStringLiteral("sign-in")))
+      return runUploadSignIn(parser.value(QStringLiteral("sign-in")), UploadPaths::defaults());
+    const QString target = parser.value(QStringLiteral("upload"));
+    const QString local = resolveLocalImagePath(target);
+    return runUploadCommand(local.isEmpty() ? target : local, UploadPaths::defaults());
+  }
   if (parser.isSet(QStringLiteral("pin")) || parser.isSet(QStringLiteral("preview"))) {
     if (!filePath.isEmpty() || clipboardInput || requestedModes > 0 ||
         !positional.isEmpty() || quickOutputMode != QuickOutputMode::None ||

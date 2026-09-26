@@ -107,6 +107,18 @@ void configureCaptureCommandLine(QCommandLineParser &parser, bool beforeQt) {
       QStringLiteral("Show an image as a floating window pinned on every workspace."),
       QStringLiteral("path"));
   parser.addOption(pinOption);
+  const QCommandLineOption uploadOption(
+      QStringLiteral("upload"),
+      QStringLiteral("Upload an image to the hosts in [upload] of omasnap.conf, "
+                     "copy the link and print it."),
+      QStringLiteral("path"));
+  parser.addOption(uploadOption);
+  const QCommandLineOption signInOption(
+      QStringLiteral("sign-in"),
+      QStringLiteral("Sign in to an upload host (Dropbox, Nextcloud) in the "
+                     "browser and keep its token in the keyring."),
+      QStringLiteral("host"));
+  parser.addOption(signInOption);
   QCommandLineOption previewOption(
       QStringLiteral("preview"), QString(), QStringLiteral("path"));
   previewOption.setFlags(QCommandLineOption::HiddenFromHelp);
