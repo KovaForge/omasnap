@@ -8,6 +8,7 @@
 #include "chrome-theme.hpp"
 #include "card-stack.hpp"
 #include "capture.hpp"
+#include "host-mode.hpp"
 #include "pin-file.hpp"
 #include "pin-expiry.hpp"
 #include "pin-layout.hpp"
@@ -896,6 +897,9 @@ protected:
     drawControlButton(painter, copyButtonRect(), QStringLiteral("copy"),
                        QStringLiteral("Copy"));
     drawControlButton(painter, closeButtonRect(), QStringLiteral("close"));
+    if (hostUploadAvailable())
+      drawControlButton(painter, uploadButtonRect(), QStringLiteral("upload"),
+                        QStringLiteral("Upload"));
   }
 
   void drawControlButton(QPainter &painter, const QRectF &rect,
@@ -966,6 +970,10 @@ protected:
       }
       if (editButtonRect().contains(position)) {
         reopenInEditor();
+        return;
+      }
+      if (hostUploadAvailable() && uploadButtonRect().contains(position)) {
+        uploadToHost();
         return;
       }
       if (QWindow *handle = windowHandle())
@@ -1294,6 +1302,54 @@ protected:
     }, QStringLiteral("Copied to clipboard"));
   }
 
+  // Hosted pins (OMASNAP_HOST_UPLOAD_COMMAND set by the host, e.g. XerahS)
+  // upload through the host: omasnap never uploads or holds credentials.
+  void uploadToHost() {
+    runAction([command = uploadCommand_, path = path_, shared = sharedPath_] {
+      QString error;
+      QString file = path;
+      if (!PinSnapshotFile::isOwnedPath(path) &&
+          QImageReader::imageFormat(path) != "png")
+        file = sharedPinPath(path, shared, error);
+      if (file.isEmpty())
+        return ActionResult{error, {}, {}};
+      QProcess process;
+      process.setProcessChannelMode(QProcess::SeparateChannels);
+      process.start(command.constFirst(), command.mid(1) << file);
+      if (!process.waitForStarted(5000)) {
+        return ActionResult{QStringLiteral("Could not start the upload command"),
+                            {}, {}};
+      }
+      if (!process.waitForFinished(180000)) {
+        process.kill();
+        process.waitForFinished(1000);
+        return ActionResult{QStringLiteral("Upload timed out"), {}, {}};
+      }
+      const QStringList lines = QString::fromUtf8(process.readAllStandardOutput())
+                                    .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+      QString url;
+      for (auto line = lines.crbegin(); line != lines.crend(); ++line) {
+        const QString trimmed = line->trimmed();
+        if (trimmed.startsWith(QStringLiteral("http://")) ||
+            trimmed.startsWith(QStringLiteral("https://"))) {
+          url = trimmed;
+          break;
+        }
+      }
+      if (process.exitStatus() != QProcess::NormalExit ||
+          process.exitCode() != 0 || url.isEmpty()) {
+        const QString detail =
+            QString::fromUtf8(process.readAllStandardError()).trimmed();
+        return ActionResult{detail.isEmpty() ? QStringLiteral("Upload failed")
+                                             : QStringLiteral("Upload failed: %1")
+                                                   .arg(detail.section(QLatin1Char('\n'), -1)),
+                            {}, {}};
+      }
+      static_cast<void>(copyTextToClipboard(url, error));
+      return ActionResult{error, {}, {}};
+    }, QStringLiteral("Uploaded · link copied"));
+  }
+
   void copyPath() {
     runAction([path = path_, shared = sharedPath_] {
       QString error;
@@ -1468,6 +1524,12 @@ protected:
         case Qt::Key_R:
           revealFile();
           return;
+        case Qt::Key_U:
+          if (!uploadCommand_.isEmpty()) {
+            uploadToHost();
+            return;
+          }
+          break;
         default:
           break;
         }
@@ -1647,6 +1709,12 @@ private:
 
   [[nodiscard]] QRectF revealButtonRect() const { return controlRect(6); }
 
+  [[nodiscard]] QRectF uploadButtonRect() const { return controlRect(7); }
+
+  [[nodiscard]] bool hostUploadAvailable() const {
+    return !uploadCommand_.isEmpty() && !uploadButtonRect().isEmpty();
+  }
+
   [[nodiscard]] QRectF controlRect(int index) const {
     return pinControlRect(size(), index);
   }
@@ -1656,6 +1724,8 @@ private:
       if (controlRect(index).contains(position))
         return index;
     }
+    if (hostUploadAvailable() && uploadButtonRect().contains(position))
+      return 7;
     return -1;
   }
 
@@ -1716,6 +1786,8 @@ private:
   QString toast_;
   bool hovered_ = false;
   int hoveredControl_ = -1;
+  /// Host upload argv; empty for standalone pins, which show no Upload.
+  const QStringList uploadCommand_ = hostUploadCommand();
 };
 
 } // namespace

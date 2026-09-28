@@ -144,6 +144,19 @@ bool runPinLayoutSmoke(QString &error) {
         }
       }
     }
+    // The hosted Upload action appears only where it fits without overlap.
+    if (const QRectF upload = pinControlRect(frame, 7); !upload.isEmpty()) {
+      bool overlaps = !bounds.contains(upload);
+      for (int other = 0; other < 7; ++other)
+        overlaps = overlaps || upload.intersects(pinControlRect(frame, other));
+      if (overlaps) {
+        error = QStringLiteral("The hosted Upload control overlaps another control");
+        return false;
+      }
+    } else if (height >= 113) {
+      error = QStringLiteral("The hosted Upload control is missing on a tall preview");
+      return false;
+    }
     const QRectF edit = pinControlRect(frame, 3);
     const QRectF copy = pinControlRect(frame, 1);
     const QRectF pin = pinControlRect(frame, 5);
@@ -160,7 +173,7 @@ bool runPinLayoutSmoke(QString &error) {
     }
   }
   if (!pinControlRect(preview, -1).isEmpty() ||
-      !pinControlRect(preview, 7).isEmpty()) {
+      !pinControlRect(preview, 8).isEmpty()) {
     error = QStringLiteral("An unknown pin control has a click target");
     return false;
   }

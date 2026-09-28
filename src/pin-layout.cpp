@@ -352,6 +352,12 @@ QRectF pinControlRect(const QSize &frame, int index) {
     return {right - size - gap, inset, size, size};
   case 6: // Show in folder, beside Copy path
     return {inset + dragWidth + size + gap * 2, inset, size, size};
+  case 7: { // Host upload, centered under Edit/Copy; omitted when it can't fit
+    const QRectF upload((frame.width() - actionWidth) / 2,
+                        actionY + actionHeight + actionGap, actionWidth,
+                        actionHeight);
+    return upload.bottom() <= frame.height() - inset ? upload : QRectF();
+  }
   default:
     return {};
   }
