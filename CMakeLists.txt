@@ -216,6 +216,11 @@ target_link_libraries(omasnap-smoke PRIVATE omasnap-core Qt6::Test)
 target_precompile_headers(omasnap-smoke REUSE_FROM omasnap-core)
 add_test(NAME omasnap-smoke COMMAND omasnap-smoke "${CMAKE_CURRENT_BINARY_DIR}/omasnap-smoke-output")
 set_tests_properties(omasnap-smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+# Early exits (--version, --help, bad options) must not race startup workers:
+# the theme watcher once loaded on a thread while exit() destroyed its regexes.
+add_test(NAME omasnap-cli-exit
+  COMMAND sh -c "for i in $(seq 1 20); do \"$<TARGET_FILE:omasnap>\" --version >/dev/null || exit 1; done")
+set_tests_properties(omasnap-cli-exit PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 qt_add_executable(stitch-replay

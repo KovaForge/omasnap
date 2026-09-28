@@ -211,7 +211,6 @@ int runOmasnap(int argc, char **argv) {
   // widget is created, so painter/widget default-font text keeps its size and
   // face.
   QApplication::setFont(chromeDefaultFont());
-  initializeChromeTheme();
 
   // A stitched scroll capture (or any tall pinned image) exceeds Qt's default
   // 256 MB image-decode allocation limit; lift it so --file/--pin can open it.
@@ -222,6 +221,10 @@ int runOmasnap(int argc, char **argv) {
   configureCaptureCommandLine(parser);
   parser.process(application);
   startupTimingMark("command line parsed");
+  // After parsing: --version, --help and bad options exit() inside process(),
+  // and the theme watcher's first load runs on a worker. Starting it earlier
+  // let exit() tear down the static regexes that load was using (SIGSEGV).
+  initializeChromeTheme();
 
   QString filePath = parser.value(QStringLiteral("file"));
   const bool clipboardInput = parser.isSet(QStringLiteral("clipboard"));

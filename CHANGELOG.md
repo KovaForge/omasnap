@@ -20,6 +20,12 @@ earlier development is recorded in the [commit history](https://github.com/omaco
 - Pins launched by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` gain an Upload button
   (`U`) that runs the host's upload command and copies the returned link.
 
+### Fixed
+
+- `omasnap --version`, `--help` and unknown options no longer crash (SIGSEGV) while
+  exiting: the theme watcher now starts after the command line is parsed, so exit
+  no longer tears down its regexes under a running theme load.
+
 - `Tab` cycles region selection between free, square, 3:4, and 16:9 while
   capturing; `Shift+Tab` cycles back. The capture guide shows the active aspect.
 
