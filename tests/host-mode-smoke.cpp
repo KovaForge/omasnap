@@ -47,6 +47,16 @@ bool checkHelpers(QString &error) {
     error = QStringLiteral("Host upload command splitting changed argv");
     return false;
   }
+  if (hostUploadUrl(QStringLiteral(" https://i.example/a.png ")) !=
+          QStringLiteral("https://i.example/a.png") ||
+      hostUploadUrl(QStringLiteral(
+          R"({"schemaVersion":1,"ok":true,"url":"https://i.example/b.png"})")) !=
+          QStringLiteral("https://i.example/b.png") ||
+      !hostUploadUrl(QStringLiteral(R"({"ok":false,"url":"file:///etc"})")).isEmpty() ||
+      !hostUploadUrl(QStringLiteral("Uploading...")).isEmpty()) {
+    error = QStringLiteral("Host upload output parsing returned the wrong link");
+    return false;
+  }
 
   HostResult ok;
   ok.status = QStringLiteral("ok");

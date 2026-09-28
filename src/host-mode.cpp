@@ -325,3 +325,18 @@ QStringList hostUploadCommand() {
   return splitHostCommand(
       qEnvironmentVariable("OMASNAP_HOST_UPLOAD_COMMAND").trimmed());
 }
+
+QString hostUploadUrl(const QString &line) {
+  const QString trimmed = line.trimmed();
+  QString url = trimmed;
+  if (trimmed.startsWith(QLatin1Char('{'))) {
+    const QJsonDocument document = QJsonDocument::fromJson(trimmed.toUtf8());
+    url = document.isObject()
+              ? document.object().value(QStringLiteral("url")).toString().trimmed()
+              : QString();
+  }
+  if (url.startsWith(QStringLiteral("http://")) ||
+      url.startsWith(QStringLiteral("https://")))
+    return url;
+  return {};
+}

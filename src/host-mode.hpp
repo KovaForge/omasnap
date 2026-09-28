@@ -114,5 +114,8 @@ int runHostCapabilities(const QString &version);
 /** Command a hosted pin runs to upload its PNG, from
  *  `OMASNAP_HOST_UPLOAD_COMMAND`, split into argv. Empty when unset. */
 [[nodiscard]] QStringList hostUploadCommand();
+/** The URL in one line of upload-command output: a bare http(s) URL, or a
+ *  JSON object with a "url" string (omaxerahs upload). Empty otherwise. */
+[[nodiscard]] QString hostUploadUrl(const QString &line);
 /** Splits a command line into argv with shell-like quoting (no expansion). */
 [[nodiscard]] QStringList splitHostCommand(const QString &command);

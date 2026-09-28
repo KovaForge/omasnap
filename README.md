@@ -339,8 +339,8 @@ a surface, prints JSON with `ok`, `hostMode` (protocol version, currently `1`), 
 
 Pins opened with `--pin` by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` show an
 **Upload** button (and `U` while hovered). It runs that command (split into argv, never a
-shell) with the PNG path appended, takes the last `http(s)://` line of its output as the
-link and copies it. omasnap itself never uploads or stores credentials. Without the
+shell) with the PNG path appended, takes the link from the last output line that is an `http(s)://`
+URL or a JSON object with a `url` field (as `omaxerahs upload` prints), and copies it. omasnap itself never uploads or stores credentials. Without the
 variable, pins show no Upload control.
 
 ### Edit an existing or clipboard image

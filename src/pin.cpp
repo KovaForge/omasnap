@@ -1329,12 +1329,9 @@ protected:
                                     .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
       QString url;
       for (auto line = lines.crbegin(); line != lines.crend(); ++line) {
-        const QString trimmed = line->trimmed();
-        if (trimmed.startsWith(QStringLiteral("http://")) ||
-            trimmed.startsWith(QStringLiteral("https://"))) {
-          url = trimmed;
+        url = hostUploadUrl(*line);
+        if (!url.isEmpty())
           break;
-        }
       }
       if (process.exitStatus() != QProcess::NormalExit ||
           process.exitCode() != 0 || url.isEmpty()) {
