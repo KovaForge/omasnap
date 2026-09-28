@@ -85,6 +85,7 @@ change that touches the principle, not just this summary.
 |---|---|
 | `src/main.cpp` | CLI parsing, single-instance lock, mode dispatch |
 | `src/instance-lock.cpp/.hpp` | Single-instance handover: cancel a running overlay, or stop it and take over for `--file` |
+| `src/host-mode.cpp/.hpp` | Host mode (`--host`): process-wide session, JSON result, exit codes, `--host-capabilities` probe, hosted pin upload command |
 | `src/capture.cpp/.hpp` | Capture, render pipeline, output (clipboard/save/notify), source+JSON operation-log persistence, config loading glue |
 | `src/editor.cpp/.hpp` | Annotation editor: tools, vector layers, operation-log undo/redo, the select↔edit phase machine, export |
 | `src/overlay-chrome.cpp/.hpp` | Shared chrome every overlay wears: the capture-kind tab strip, hotkey legend, status pill |

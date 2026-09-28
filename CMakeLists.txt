@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(omasnap VERSION 1.21.0 LANGUAGES C CXX)
+project(omasnap VERSION 1.22.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CTest)
 set(CMAKE_AUTOMOC ON)
@@ -71,6 +71,8 @@ add_library(omasnap-core STATIC
   src/chrome-theme.hpp
   src/eyedropper.cpp
   src/eyedropper.hpp
+  src/host-mode.cpp
+  src/host-mode.hpp
   src/surface-capture.cpp
   src/stitch.cpp
   src/stitch.hpp
@@ -203,6 +205,8 @@ qt_add_executable(omasnap-smoke
   tests/scroll-startup-smoke.hpp
   tests/save-as-smoke.cpp
   tests/save-as-smoke.hpp
+  tests/host-mode-smoke.cpp
+  tests/host-mode-smoke.hpp
 )
 target_include_directories(omasnap-smoke PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/tests"

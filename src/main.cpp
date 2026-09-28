@@ -4,6 +4,7 @@
 #include "chrome-theme.hpp"
 #include "cli-path.hpp"
 #include "editor.hpp"
+#include "host-mode.hpp"
 #include "instance-lock.hpp"
 #include "output-config.hpp"
 #include "overlay-chrome.hpp"
@@ -123,9 +124,55 @@ QByteArray hyprctlOutput(const QStringList &arguments) {
   return process.readAllStandardOutput();
 }
 
+QString &lastCriticalMessage() {
+  static QString message;
+  return message;
+}
+
+QtMessageHandler previousMessageHandler = nullptr;
+
+// Host mode reports failures in its JSON result; remember the last critical
+// line so the result carries the same text the log does.
+void hostMessageHandler(QtMsgType type, const QMessageLogContext &context,
+                        const QString &message) {
+  if (type == QtCriticalMsg || type == QtFatalMsg)
+    lastCriticalMessage() = message;
+  if (previousMessageHandler)
+    previousMessageHandler(type, context, message);
+}
+
+QString hostTargetName(CaptureEditor::CaptureMode mode) {
+  switch (mode) {
+  case CaptureEditor::CaptureMode::Smart:
+    return QStringLiteral("smart");
+  case CaptureEditor::CaptureMode::Region:
+    return QStringLiteral("region");
+  case CaptureEditor::CaptureMode::Scroll:
+    return QStringLiteral("scroll");
+  case CaptureEditor::CaptureMode::Window:
+    return QStringLiteral("window");
+  case CaptureEditor::CaptureMode::Fullscreen:
+    return QStringLiteral("fullscreen");
+  case CaptureEditor::CaptureMode::File:
+    return QStringLiteral("file");
+  }
+  return QStringLiteral("smart");
+}
+
+int runOmasnap(int argc, char **argv);
+
 } // namespace
 
 int main(int argc, char **argv) {
+  const int code = runOmasnap(argc, argv);
+  if (!hostModeActive())
+    return code;
+  const QString target = hostSession()->target;
+  return finishHostRun(code, target, lastCriticalMessage());
+}
+
+namespace {
+int runOmasnap(int argc, char **argv) {
   startupTimingMark("entered main");
   QCoreApplication::setApplicationName(QStringLiteral("omasnap"));
   QCoreApplication::setApplicationVersion(QString::fromLatin1(OMASNAP_VERSION));
@@ -137,6 +184,10 @@ int main(int argc, char **argv) {
   QCommandLineParser startupParser;
   configureCaptureCommandLine(startupParser, true);
   const bool startupParsed = startupParser.parse(rawArguments);
+  if (startupParsed && startupParser.isSet(QStringLiteral("host-capabilities"))) {
+    QCoreApplication probeApplication(argc, argv);
+    return runHostCapabilities(QString::fromLatin1(OMASNAP_VERSION));
+  }
   const bool windowedEditorProcess = startupParsed &&
       windowedEditorRequested(startupParser, loadEditorWindowMode(defaultConfigPath()));
   // Window::get below gives only the capture surface a layer-shell role.
@@ -174,6 +225,37 @@ int main(int argc, char **argv) {
 
   QString filePath = parser.value(QStringLiteral("file"));
   const bool clipboardInput = parser.isSet(QStringLiteral("clipboard"));
+  const bool hosted = parser.isSet(QStringLiteral("host"));
+  if (hosted) {
+    HostSession session;
+    session.name = parser.value(QStringLiteral("host"));
+    session.outputPath = parser.value(QStringLiteral("output"));
+    if (parser.isSet(QStringLiteral("result-json")))
+      session.resultPath = parser.value(QStringLiteral("result-json"));
+    session.recents = !parser.isSet(QStringLiteral("no-recents"));
+    session.version = QString::fromLatin1(OMASNAP_VERSION);
+    session.target = QStringLiteral("smart");
+    setHostSession(session);
+    previousMessageHandler = qInstallMessageHandler(hostMessageHandler);
+    if (session.outputPath.isEmpty()) {
+      qCritical() << "--host requires --output";
+      return 2;
+    }
+    if (parser.isSet(QStringLiteral("pin")) ||
+        parser.isSet(QStringLiteral("preview")) ||
+        parser.isSet(QStringLiteral("copy")) ||
+        parser.isSet(QStringLiteral("save")) || clipboardInput) {
+      qCritical() << "--host cannot be combined with --pin, --copy, --save or "
+                     "--clipboard";
+      return 2;
+    }
+  } else if (parser.isSet(QStringLiteral("output")) ||
+             parser.isSet(QStringLiteral("result-json")) ||
+             parser.isSet(QStringLiteral("region")) ||
+             parser.isSet(QStringLiteral("no-recents"))) {
+    qCritical() << "--output, --result-json, --region and --no-recents need --host";
+    return 2;
+  }
 
   const QString editorModeArg = parser.value(QStringLiteral("editor")).trimmed().toLower();
   if (!editorModeArg.isEmpty() &&
@@ -182,9 +264,11 @@ int main(int argc, char **argv) {
     qCritical() << "--editor takes window or overlay";
     return 2;
   }
-  const bool editorWindowMode =
-      editorModeArg == QStringLiteral("window") ||
-      (editorModeArg.isEmpty() && loadEditorWindowMode(defaultConfigPath()));
+  // Hosted fresh captures stay in-process: the windowed editor for a fresh
+  // capture is a handoff to a second process the host would never hear from.
+  const bool editorWindowMode = !hosted &&
+      (editorModeArg == QStringLiteral("window") ||
+       (editorModeArg.isEmpty() && loadEditorWindowMode(defaultConfigPath())));
 
   QuickOutputMode quickOutputMode = QuickOutputMode::None;
   if (parser.isSet(QStringLiteral("copy")) && parser.isSet(QStringLiteral("save")))
@@ -269,6 +353,29 @@ int main(int argc, char **argv) {
     qCritical()
         << "Quick output options cannot be combined with an image input";
     return 2;
+  }
+  QRect hostRegion;
+  if (hosted) {
+    HostSession session = *hostSession();
+    session.target = hostTargetName(captureMode);
+    setHostSession(session);
+    if (parser.isSet(QStringLiteral("region"))) {
+      if (!parseHostRegion(parser.value(QStringLiteral("region")), hostRegion)) {
+        qCritical() << "--region takes x,y,width,height";
+        return 2;
+      }
+      if (editingImage || parser.isSet(QStringLiteral("editor")) ||
+          (requestedModes > 0 && captureMode != CaptureEditor::CaptureMode::Region)) {
+        qCritical() << "--region is a non-interactive region capture";
+        return 2;
+      }
+      session.target = QStringLiteral("region");
+      setHostSession(session);
+    }
+    // Without an editor a finished selection outputs at once; the editor's
+    // Copy/Save/Pin all mean "finish" and write --output.
+    if (!editingImage && !parser.isSet(QStringLiteral("editor")))
+      quickOutputMode = QuickOutputMode::Save;
   }
   if (!editingImage && quickOutputMode == QuickOutputMode::None &&
       !parser.isSet(QStringLiteral("editor")))
@@ -371,10 +478,12 @@ int main(int argc, char **argv) {
 
   // Grab the output before the layer exists. ext-image-copy-capture waits for
   // a composited frame, so mapping the dim overlay first photographs the veil.
+  const bool instantHostRegion = hosted && !hostRegion.isNull();
   const bool instantFullscreenOutput =
-      !editingImage && captureMode == CaptureEditor::CaptureMode::Fullscreen &&
-      quickOutputMode != QuickOutputMode::None &&
-      quickOutputMode != QuickOutputMode::CopyAndPreview;
+      instantHostRegion ||
+      (!editingImage && captureMode == CaptureEditor::CaptureMode::Fullscreen &&
+       quickOutputMode != QuickOutputMode::None &&
+       quickOutputMode != QuickOutputMode::CopyAndPreview);
   if (!editingImage &&
       !captureMonitorPixels(capture.monitor, capture,
                             !instantFullscreenOutput, error)) {
@@ -385,6 +494,37 @@ int main(int argc, char **argv) {
   startupTimingMark(editingImage ? "pixel capture skipped"
                                  : "monitor pixels captured");
 
+  if (instantFullscreenOutput && hosted) {
+    QRectF selection(QPointF(), capture.previewSize);
+    if (instantHostRegion) {
+      selection = QRectF(hostRegion.translated(-capture.monitor.geometry.topLeft()))
+                      .intersected(selection);
+      if (selection.isEmpty()) {
+        qCritical() << "--region is outside the focused monitor";
+        return 1;
+      }
+    }
+    const QImage output = renderCapture(capture, selection, {},
+                                        BackgroundStyle::None, false);
+    const QSize logical = renderedCaptureLogicalSize(capture, output.size());
+    QString outputError;
+    if (!writeHostOutput(output, logical, outputError)) {
+      qCritical().noquote() << outputError;
+      return 1;
+    }
+    HostResult result;
+    result.status = QStringLiteral("ok");
+    result.target = hostSession()->target;
+    result.path = hostSession()->outputPath;
+    result.pixelSize = output.size();
+    result.logicalSize = logical;
+    result.scale = capture.monitor.scale;
+    result.monitor = capture.monitor.name;
+    result.region = selection.toAlignedRect().translated(
+        capture.monitor.geometry.topLeft());
+    reportHostResult(result);
+    return 0;
+  }
   if (instantFullscreenOutput) {
     QString outputError;
     const QSize expectedSize(
@@ -565,3 +705,4 @@ int main(int argc, char **argv) {
   instanceLock.unlock();
   return result;
 }
+} // namespace

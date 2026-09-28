@@ -296,6 +296,53 @@ Exit codes:
 | `1` | Capture, image, or single-instance lock failure |
 | `2` | Usage error |
 
+### Host mode (driven by another app)
+
+An application such as [XerahS](https://github.com/KovaForge/XerahS) can use omasnap as its
+capture front end. Host mode is off unless `--host` is passed, so standalone behaviour,
+keybindings and output are unchanged.
+
+```bash
+omasnap --host <name> --output <png-path> [--result-json <path>|-]
+        [--capture-region|--capture-window|--capture-fullscreen|--scroll|smart]
+        [--region x,y,w,h] [--editor overlay|window] [--no-recents]
+omasnap --host <name> --file <png> --output <png-path> --editor overlay|window
+omasnap --host-capabilities
+```
+
+- The same selection overlay, in-process capture and toggle apply: a second invocation
+  dismisses the running overlay and both report `cancelled`.
+- The flattened PNG (native pixels, logical-size metadata kept) goes to `--output` only.
+  Nothing is copied, saved to the screenshots folder, notified, previewed or pinned.
+  Recents stay on unless `--no-recents` is passed.
+- With `--editor`, Copy, Save, Save As and Pin all mean "finish": write `--output` and
+  report. `Esc` reports `cancelled`. `W` (switch editors) is unavailable while hosted.
+- `--region x,y,w,h` captures that global logical rectangle on the focused monitor with no
+  overlay (used for "capture last region").
+- One JSON object goes to `--result-json` (stdout by default), then omasnap exits with
+  `0` ok, `1` failure, `2` usage error or `3` cancelled:
+
+```json
+{"schemaVersion":1,"status":"ok","target":"region","path":"/run/user/1000/xerahs/omasnap/cap-1234.png",
+ "pixelWidth":2006,"pixelHeight":1600,"logicalWidth":1003,"logicalHeight":800,"scale":2.0,
+ "monitor":"eDP-1","region":{"x":120,"y":80,"width":1003,"height":800},
+ "window":{"class":"firefox","title":"…","address":"0x5559…"},
+ "annotated":false,"documentPath":null,"omasnapVersion":"1.22.0"}
+```
+
+Failures carry `"status":"error"` (or `"usage"`) and an `"error"` message.
+
+`--host-capabilities` checks what capture needs (Hyprland and `hyprctl`, a Wayland
+connection, `ext_image_copy_capture_manager_v1` and `zwlr_layer_shell_v1`) without mapping
+a surface, prints JSON with `ok`, `hostMode` (protocol version, currently `1`), `targets`,
+`editor` and `pin`, and exits `0` when capture can run.
+
+Pins opened with `--pin` by a host that sets `OMASNAP_HOST_UPLOAD_COMMAND` show an
+**Upload** button (and `U` while hovered). It runs that command (split into argv, never a
+shell) with the PNG path appended, takes the last `http(s)://` line of its output as the
+link and copies it. omasnap itself never uploads or stores credentials. Without the
+variable, pins show no Upload control.
+
 ### Edit an existing or clipboard image
 
 Point omasnap at any readable image and it opens straight into the annotation editor
